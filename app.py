@@ -28,7 +28,7 @@ def _save_renew_date(date_str: str):
         print(f"⚠️ 写入续期缓存失败: {e}")
 
 # 从服务器详情页读取 Expiry 日期（Bootstrap .row > .label + 兄弟元素）
-_READ_EXPIRY_JS = """
+_READ_EXPIRY_JS = r"""
 (function(){
     var labels = document.querySelectorAll('div.label, td, dt, th');
     for (var i = 0; i < labels.length; i++) {
