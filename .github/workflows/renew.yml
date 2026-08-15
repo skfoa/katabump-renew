@@ -2,7 +2,7 @@ name: Katabump Auto Renew
 
 on:
   schedule:
-  - cron: '0 2 */3 * *'  # 每天 UTC 0点 (北京时间 8点) 运行,根据服务到期时间自行修改
+  - cron: '0 2 18 8 *'  # 自动更新：下次续期日 UTC 2点运行
   workflow_dispatch: # 允许手动触发
 
 jobs:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: write  
-      contents: read
+      contents: write
     
     steps:
     - uses: actions/checkout@v6
@@ -42,7 +42,31 @@ jobs:
       run: |
         xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
           python3 app.py
-        
+
+    - name: 📅 更新下次续期时间
+      if: always()
+      run: |
+        if [ ! -f .renew_state ]; then
+          echo "⚠️ 无续期日期文件，跳过更新"
+          exit 0
+        fi
+        NEXT_DATE=$(cat .renew_state)
+        DAY=$(echo "$NEXT_DATE" | cut -d- -f3 | sed 's/^0//')
+        MONTH=$(echo "$NEXT_DATE" | cut -d- -f2 | sed 's/^0//')
+        NEW_CRON="0 2 $DAY $MONTH *"
+        echo "📅 下次续期日: $NEXT_DATE → cron: $NEW_CRON"
+        sed -i "s|  - cron: '.*'|  - cron: '$NEW_CRON'  # 自动更新：下次续期日 UTC 2点运行|" .github/workflows/renew.yml
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add .github/workflows/renew.yml
+        if ! git diff --cached --quiet; then
+          git commit -m "📅 更新下次续期: $NEXT_DATE"
+          git push
+          echo "✅ cron 已更新并推送"
+        else
+          echo "ℹ️ cron 无变化，无需推送"
+        fi
+
     - name: 🧹 清理旧的工作流运行记录
       if: always()
       env:
