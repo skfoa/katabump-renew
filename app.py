@@ -2,7 +2,9 @@
 # -*- coding: utf-8 -*-
 
 import os
+import re
 import time
+import datetime
 import subprocess
 import requests
 from seleniumbase import SB
@@ -14,6 +16,45 @@ TG_CHAT_ID   = os.environ.get("TG_CHAT_ID") or ""        # tg通知 chat id(可�
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN") or ""      # tg通知bot token(可选)
 
 BASE_URL = "https://dashboard.katabump.com"  # 网站链接
+RENEW_STATE_FILE = ".renew_state"  # 缓存下次续期日期
+
+def _save_renew_date(date_str: str):
+    """保存下次续期日期到缓存文件，供 GitHub Actions 判断是否跳过"""
+    try:
+        with open(RENEW_STATE_FILE, 'w') as f:
+            f.write(date_str)
+        print(f"📅 下次续期日: {date_str}，已写入缓存")
+    except Exception as e:
+        print(f"⚠️ 写入续期缓存失败: {e}")
+
+# 从服务器详情页读取 Expiry 日期（Bootstrap .row > .label + 兄弟元素）
+_READ_EXPIRY_JS = """
+(function(){
+    var labels = document.querySelectorAll('div.label, td, dt, th');
+    for (var i = 0; i < labels.length; i++) {
+        if (/^expiry$/i.test((labels[i].textContent || '').trim())) {
+            var next = labels[i].nextElementSibling;
+            if (next) {
+                var m = next.textContent.match(/(\d{4}-\d{2}-\d{2})/);
+                if (m) return m[1];
+            }
+        }
+    }
+    var body = document.body.innerText || '';
+    var m = body.match(/expiry[\s:]+(\d{4}-\d{2}-\d{2})/i);
+    if (m) return m[1];
+    return null;
+})()
+"""
+def _read_expiry_date(sb):
+    """从服务器详情页读取 Expiry 日期，返回 'YYYY-MM-DD' 或 None"""
+    try:
+        result = sb.execute_script(_READ_EXPIRY_JS)
+        if result and re.match(r'\d{4}-\d{2}-\d{2}', result):
+            return result
+    except Exception as e:
+        print(f"⚠️ 读取 Expiry 日期失败: {e}")
+    return None
 
 #  Telegram 推送模块
 def send_tg_message(status_icon, status_text, time_left=""):
@@ -350,12 +391,10 @@ def _goto_server_detail(sb) -> bool:
     print("\n🖥️  正在进入服务器续期页...")
     time.sleep(5)
 
-    # 检查页面顶部是否已有"还无法续期"全局提示
+    # 检查页面顶部是否已有"还无法续期"全局提示（仅打印，不阻断导航）
     alert_text = _read_alert(sb)
     if alert_text and "can't renew" in alert_text.lower():
         print(f"ℹ️  页面顶部提示: {alert_text}")
-        send_tg_message("ℹ️", "⚠️ 未到续期时间", alert_text)
-        return False
 
     # 多种选择器尝试查找 See 链接
     selectors = [
@@ -587,7 +626,7 @@ def _check_renew_result(sb):
 
 
 def renew_server(sb):
-    """登录成功后调用：自动进入详情页 -> Renew -> ALTCHA -> 提交"""
+    """登录后调用：进入详情页 -> 读取到期日 -> 判断是否到续期日 -> 续期 -> 更新缓存"""
     print("\n" + "#" * 25)
     print("  开始自动续期流程")
     print("#" * 25)
@@ -595,6 +634,27 @@ def renew_server(sb):
     if not _goto_server_detail(sb):
         return
 
+    # 读取 Expiry 日期并判断是否到续期日
+    expiry_str = _read_expiry_date(sb)
+    if expiry_str:
+        print(f"📅 服务到期日: {expiry_str}")
+        expiry = datetime.date.fromisoformat(expiry_str)
+        renew_date = expiry - datetime.timedelta(days=1)  # 到期前 1 天可续
+        today = datetime.datetime.utcnow().date()
+        print(f"📅 可续期日: {renew_date.isoformat()} | 今天(UTC): {today.isoformat()}")
+
+        if today < renew_date:
+            # 未到续期日，写入缓存并跳过
+            _save_renew_date(renew_date.isoformat())
+            msg = f"未到续期时间，到期日 {expiry_str}，续期日 {renew_date.isoformat()}"
+            print(f"ℹ️ {msg}")
+            send_tg_message("ℹ️", "⚠️ 未到续期时间", msg)
+            return
+        print("✅ 已到续期日，开始执行续期")
+    else:
+        print("⚠️ 未能读取到期日，继续尝试续期...")
+
+    # 执行续期
     if not _open_renew_modal(sb):
         return
 
@@ -604,6 +664,16 @@ def renew_server(sb):
 
     _submit_renew(sb)
     _check_renew_result(sb)
+
+    # 续期后重新读取新的 Expiry 日期并更新缓存
+    time.sleep(3)
+    new_expiry = _read_expiry_date(sb)
+    if new_expiry:
+        new_renew = datetime.date.fromisoformat(new_expiry) - datetime.timedelta(days=1)
+        _save_renew_date(new_renew.isoformat())
+        print(f"📅 续期后新到期日: {new_expiry}")
+    else:
+        print("⚠️ 续期后未能读取新到期日")
 
 
 #  脚本执行入口 (可选代理)
