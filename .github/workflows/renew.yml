@@ -2,7 +2,7 @@ name: Katabump Auto Renew
 
 on:
   schedule:
-    - cron: '0 2 18 8 *'  # 自动更新：下次续期日 UTC 2点运行
+    - cron: '0 2 22 8 *'  # 自动更新：下次续期日 UTC 2点运行  # 自动更新：下次续期日 UTC 2点运行
   workflow_dispatch: # 允许手动触发
 
 jobs:
@@ -59,7 +59,7 @@ jobs:
           MONTH=$(echo "$NEXT_DATE" | cut -d- -f2 | sed 's/^0//')
           NEW_CRON="0 2 $DAY $MONTH *"
           echo "📅 下次续期日: $NEXT_DATE → cron: $NEW_CRON"
-          sed -i "s|  - cron: '.*'|  - cron: '$NEW_CRON'  # 自动更新：下次续期日 UTC 2点运行|" .github/workflows/renew.yml
+          sed -i "s|  - cron: '0 2 22 8 *'  # 自动更新：下次续期日 UTC 2点运行  # 自动更新：下次续期日 UTC 2点运行|" .github/workflows/renew.yml
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .github/workflows/renew.yml
