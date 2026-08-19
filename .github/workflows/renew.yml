@@ -2,83 +2,86 @@ name: Katabump Auto Renew
 
 on:
   schedule:
-  - cron: '0 2 18 8 *'  # 自动更新：下次续期日 UTC 2点运行
+    - cron: '0 2 18 8 *'  # 自动更新：下次续期日 UTC 2点运行
   workflow_dispatch: # 允许手动触发
 
 jobs:
   Renew-Katabump:
     runs-on: ubuntu-latest
     permissions:
-      actions: write  
+      actions: write
       contents: write
-      workflows: write
-    
+
     steps:
-    - uses: actions/checkout@v6
-    - name: ⚙ 设置 Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.12'
+      - name: 📥 检出代码
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}  # 使用具备 workflow 权限的 PAT 进行检出
 
-    - name: 🛠️ 安装系统依赖和python依赖
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y xvfb x11-utils xdotool scrot fonts-noto-cjk
-        pip install seleniumbase requests
-        seleniumbase install chromedriver
+      - name: ⚙ 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-    - name: ⚙ 设置代理 (sing-box)
-      continue-on-error: true
-      env:
-        NODE_LINK: ${{ secrets.NODE_LINK }}
-      run: |
-        bash <(wget -qO- https://main.ssss.nyc.mn/setup_proxy.sh)
+      - name: 🛠️ 安装系统依赖和python依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb x11-utils xdotool scrot fonts-noto-cjk
+          pip install seleniumbase requests
+          seleniumbase install chromedriver
 
-    - name: 🚀 运行续期脚本
-      env:
-        KATABUMP_EMAIL: ${{ secrets.KATABUMP_EMAIL }}
-        KATABUMP_PASSWORD: ${{ secrets.KATABUMP_PASSWORD }}
-        TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
-        TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-      run: |
-        xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
-          python3 app.py
+      - name: ⚙ 设置代理 (sing-box)
+        continue-on-error: true
+        env:
+          NODE_LINK: ${{ secrets.NODE_LINK }}
+        run: |
+          bash <(wget -qO- https://main.ssss.nyc.mn/setup_proxy.sh)
 
-    - name: 📅 更新下次续期时间
-      if: always()
-      run: |
-        if [ ! -f .renew_state ]; then
-          echo "⚠️ 无续期日期文件，跳过更新"
-          exit 0
-        fi
-        NEXT_DATE=$(cat .renew_state)
-        DAY=$(echo "$NEXT_DATE" | cut -d- -f3 | sed 's/^0//')
-        MONTH=$(echo "$NEXT_DATE" | cut -d- -f2 | sed 's/^0//')
-        NEW_CRON="0 2 $DAY $MONTH *"
-        echo "📅 下次续期日: $NEXT_DATE → cron: $NEW_CRON"
-        sed -i "s|  - cron: '.*'|  - cron: '$NEW_CRON'  # 自动更新：下次续期日 UTC 2点运行|" .github/workflows/renew.yml
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git add .github/workflows/renew.yml
-        if ! git diff --cached --quiet; then
-          git commit -m "📅 更新下次续期: $NEXT_DATE"
-          git push
-          echo "✅ cron 已更新并推送"
-        else
-          echo "ℹ️ cron 无变化，无需推送"
-        fi
+      - name: 🚀 运行续期脚本
+        env:
+          KATABUMP_EMAIL: ${{ secrets.KATABUMP_EMAIL }}
+          KATABUMP_PASSWORD: ${{ secrets.KATABUMP_PASSWORD }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
+            python3 app.py
 
-    - name: 🧹 清理旧的工作流运行记录
-      if: always()
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        runs=$(gh run list --workflow="${{ github.workflow }}" --limit=100 --json databaseId --jq '.[].databaseId')
-        count=0
-        for run_id in $runs; do
-          count=$((count + 1))
-          if [ $count -gt 1 ]; then
-            echo "删除运行记录: $run_id"
-            gh run delete $run_id || true
+      - name: 📅 更新下次续期时间
+        if: always()
+        run: |
+          if [ ! -f .renew_state ]; then
+            echo "⚠️ 无续期日期文件，跳过更新"
+            exit 0
           fi
-        done
+          NEXT_DATE=$(cat .renew_state)
+          DAY=$(echo "$NEXT_DATE" | cut -d- -f3 | sed 's/^0//')
+          MONTH=$(echo "$NEXT_DATE" | cut -d- -f2 | sed 's/^0//')
+          NEW_CRON="0 2 $DAY $MONTH *"
+          echo "📅 下次续期日: $NEXT_DATE → cron: $NEW_CRON"
+          sed -i "s|  - cron: '.*'|  - cron: '$NEW_CRON'  # 自动更新：下次续期日 UTC 2点运行|" .github/workflows/renew.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/renew.yml
+          if ! git diff --cached --quiet; then
+            git commit -m "📅 更新下次续期: $NEXT_DATE"
+            git push
+            echo "✅ cron 已更新并推送"
+          else
+            echo "ℹ️ cron 无变化，无需推送"
+          fi
+
+      - name: 🧹 清理旧的工作流运行记录
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN || github.token }}
+        run: |
+          runs=$(gh run list --workflow="${{ github.workflow }}" --limit=100 --json databaseId --jq '.[].databaseId')
+          count=0
+          for run_id in $runs; do
+            count=$((count + 1))
+            if [ $count -gt 1 ]; then
+              echo "删除运行记录: $run_id"
+              gh run delete $run_id || true
+            fi
+          done
