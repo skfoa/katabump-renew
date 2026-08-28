@@ -7,6 +7,7 @@ import time
 import datetime
 import subprocess
 import requests
+# pyrefly: ignore [missing-import]
 from seleniumbase import SB
 
 # 从环境变量获取账号密码和 TG 配置
@@ -55,6 +56,7 @@ def _read_expiry_date(sb):
     except Exception as e:
         print(f"⚠️ 读取 Expiry 日期失败: {e}")
     return None
+
 
 #  Telegram 推送模块
 def send_tg_message(status_icon, status_text, time_left=""):
@@ -391,10 +393,12 @@ def _goto_server_detail(sb) -> bool:
     print("\n🖥️  正在进入服务器续期页...")
     time.sleep(5)
 
-    # 检查页面顶部是否已有"还无法续期"全局提示（仅打印，不阻断导航）
+    # 检查页面顶部是否已有"还无法续期"全局提示
     alert_text = _read_alert(sb)
     if alert_text and "can't renew" in alert_text.lower():
         print(f"ℹ️  页面顶部提示: {alert_text}")
+        send_tg_message("ℹ️", "⚠️ 未到续期时间", alert_text)
+        return False
 
     # 多种选择器尝试查找 See 链接
     selectors = [
